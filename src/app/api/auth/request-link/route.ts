@@ -6,19 +6,32 @@ export async function POST(request: Request) {
   try {
     const { phone } = await request.json();
     if (!phone) {
-      return NextResponse.json({ error: 'NÃºmero no vÃ¡lido' }, { status: 400 });
+      return NextResponse.json({ error: 'Número no válido' }, { status: 400 });
     }
 
     // Limpiar formato a internacional
     let formattedPhone = phone.replace(/\D/g, '');
-    if (formattedPhone.length === 10) formattedPhone = `521${formattedPhone}`;
-    if (formattedPhone.startsWith('52') && formattedPhone.length === 12) formattedPhone = `521${formattedPhone.substring(2)}`;
+    let localPhone = formattedPhone.slice(-10); // Los ultimos 10 digitos siempre
+    let mxPhone = `52${localPhone}`;
+    let mx1Phone = `521${localPhone}`;
 
-    // Buscar el partner en Odoo
+    // Al formatearlo para N8N:
+    formattedPhone = mxPhone; // n8n prefiere 52XXXXXXXXXX normalmente
+
+    // Buscar el partner en Odoo con diferentes combinaciones posibles
+    // El operador '|' en Odoo es prefijo OR, para 4 condiciones se necesitan 3 ORs: ['|', '|', '|', A, B, C, D]
+    const searchDomain = [
+      '|', '|', '|',
+      ['mobile', 'ilike', localPhone],
+      ['mobile', 'ilike', mxPhone],
+      ['mobile', 'ilike', mx1Phone],
+      ['phone', 'ilike', localPhone]
+    ];
+
     const partners = await callKw(
       'res.partner',
       'search_read',
-      [[['mobile', 'ilike', phone]]],
+      [searchDomain],
       { fields: ['id', 'name', 'mobile', 'customer_rank', 'company_type', 'property_product_pricelist', 'property_payment_term_id', 'credit_limit', 'credit'], limit: 1 }
     );
 
@@ -28,13 +41,13 @@ export async function POST(request: Request) {
     if (partner) {
       if (partner.customer_rank === 0 || partner.company_type !== "company") {
         return NextResponse.json({
-          error: 'Tu cuenta no estÃ¡ habilitada. Contacta a tu ejecutivo KOLD.',
+          error: 'Tu cuenta no está habilitada. Contacta a tu ejecutivo KOLD.',
           b2b_locked: true
         }, { status: 403 });
       }
     } else {
       return NextResponse.json({
-        error: 'NÃºmero no registrado. Si eres distribuidor, contacta a ventas KOLD.',
+        error: 'Número no registrado. Si eres distribuidor, contacta a ventas KOLD.',
         b2b_locked: true
       }, { status: 404 });
     }
