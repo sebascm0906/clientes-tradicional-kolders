@@ -19,12 +19,14 @@ export async function POST(request: Request) {
     formattedPhone = mxPhone; // n8n prefiere 52XXXXXXXXXX normalmente
 
     // Buscar el partner en Odoo con diferentes combinaciones posibles
-    // El operador '|' en Odoo es prefijo OR, para 4 condiciones se necesitan 3 ORs: ['|', '|', '|', A, B, C, D]
+    // Si Odoo tiene "+52 33 3642 7520", ilike necesita comodines % para ignorar los espacios
+    const likeLocal = `%${localPhone.slice(0, 2)}%${localPhone.slice(2, 6)}%${localPhone.slice(6, 10)}%`;
+
     const searchDomain = [
       '|', '|', '|',
+      ['mobile', 'ilike', likeLocal],
+      ['phone', 'ilike', likeLocal],
       ['mobile', 'ilike', localPhone],
-      ['mobile', 'ilike', mxPhone],
-      ['mobile', 'ilike', mx1Phone],
       ['phone', 'ilike', localPhone]
     ];
 
@@ -39,9 +41,9 @@ export async function POST(request: Request) {
 
     // ValidaciÃ³n B2B Exclusiva
     if (partner) {
-      if (partner.customer_rank === 0 || partner.company_type !== "company") {
+      if (partner.company_type !== "company") {
         return NextResponse.json({
-          error: 'Tu cuenta no está habilitada. Contacta a tu ejecutivo KOLD.',
+          error: 'Solo las cuentas empresariales o de distribución pueden acceder al portal B2B.',
           b2b_locked: true
         }, { status: 403 });
       }
