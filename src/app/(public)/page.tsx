@@ -11,7 +11,7 @@ export default function Home() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (phone.length < 10) return;
-    
+
     setLoading(true);
     setErrorMsg("");
     try {
@@ -36,7 +36,7 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-background flex flex-col relative px-6 py-12">
       <div className="flex-1 flex flex-col justify-center max-w-sm mx-auto w-full z-10">
-        
+
         <div className="mb-10 text-center">
           <div className="text-primary font-bold tracking-[0.2em] text-sm mb-2">PORTAL DISTRIBUIDORES</div>
           <h1 className="text-4xl font-bold tracking-tight text-foreground font-display">
@@ -48,7 +48,7 @@ export default function Home() {
         </div>
 
         {success ? (
-           <div className="bg-success/10 border border-success/20 rounded-2xl p-6 text-center animate-in fade-in slide-in-from-bottom-4">
+          <div className="bg-success/10 border border-success/20 rounded-2xl p-6 text-center animate-in fade-in slide-in-from-bottom-4">
             <div className="w-16 h-16 bg-success/20 rounded-full flex items-center justify-center mx-auto mb-4 text-success text-2xl">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
             </div>
@@ -56,8 +56,8 @@ export default function Home() {
             <p className="text-sm text-muted-foreground">
               Hemos enviado un enlace seguro al número <b className="text-foreground">{phone}</b>
             </p>
-            <button 
-              onClick={() => {setSuccess(false); setPhone("");}} 
+            <button
+              onClick={() => { setSuccess(false); setPhone(""); }}
               className="mt-6 text-primary text-sm font-bold"
             >
               Usar otro número
@@ -70,13 +70,13 @@ export default function Home() {
                 Número de Celular B2B
               </label>
               <div className="relative">
-                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground font-bold">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground font-bold">
                   +52
                 </span>
                 <input
                   type="tel"
                   value={phone}
-                  onChange={(e) => setPhone(e.replace(/\D/g, '').substring(0, 10))}
+                  onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').substring(0, 10))}
                   placeholder="Tu celular a 10 dígitos"
                   className="w-full h-14 bg-card border-none rounded-xl pl-14 pr-4 text-lg font-bold outline-none ring-1 ring-border focus:ring-2 focus:ring-primary shadow-sm"
                   autoFocus

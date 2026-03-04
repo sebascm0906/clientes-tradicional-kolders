@@ -5,7 +5,7 @@ import { cookies } from 'next/headers';
 
 export async function GET() {
   try {
-    const sessionCookie = cookies().get('session')?.value;
+    const sessionCookie = (await cookies()).get('session')?.value;
     if (!sessionCookie) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const payload = await verifyToken(sessionCookie);
@@ -23,18 +23,18 @@ export async function GET() {
     if (!data.length) return NextResponse.json({ error: 'Partner not found' }, { status: 404 });
 
     const partner = data[0];
-    
+
     return NextResponse.json({
-        id: partner.id,
-        name: partner.name,
-        mobile: partner.mobile,
-        vat: partner.vat,
-        address: partner.street,
-        pricelist: partner.property_product_pricelist ? { id: partner.property_product_pricelist[0], name: partner.property_product_pricelist[1] } : null,
-        credit_limit: partner.credit_limit || 0,
-        credit_used: partner.credit || 0,
-        executive: partner.user_id ? partner.user_id[1] : 'Ejecutivo KOLD',
-        payment_term: partner.property_payment_term_id ? { id: partner.property_payment_term_id[0], name: partner.property_payment_term_id[1]} : null
+      id: partner.id,
+      name: partner.name,
+      mobile: partner.mobile,
+      vat: partner.vat,
+      address: partner.street,
+      pricelist: partner.property_product_pricelist ? { id: partner.property_product_pricelist[0], name: partner.property_product_pricelist[1] } : null,
+      credit_limit: partner.credit_limit || 0,
+      credit_used: partner.credit || 0,
+      executive: partner.user_id ? partner.user_id[1] : 'Ejecutivo KOLD',
+      payment_term: partner.property_payment_term_id ? { id: partner.property_payment_term_id[0], name: partner.property_payment_term_id[1] } : null
     });
 
   } catch (error) {

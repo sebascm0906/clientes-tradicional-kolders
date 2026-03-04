@@ -14,12 +14,12 @@ export async function POST(request: Request) {
 
     // Refresh a un token largo para 7 dÃ­as
     const sessionToken = await signToken({ partner_id: payload.partner_id, b2b: true, source: 'pwa_canal_tradicional' });
-    
-    cookies().set('session', sessionToken, { 
-        httpOnly: true, 
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        maxAge: 60 * 60 * 24 * 7 // 7 days
+
+    (await cookies()).set('session', sessionToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 7 // 7 days
     });
 
     return NextResponse.json({ success: true });
