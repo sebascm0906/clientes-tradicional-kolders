@@ -19,13 +19,14 @@ export async function POST(request: Request) {
     formattedPhone = mxPhone; // n8n prefiere 52XXXXXXXXXX normalmente
 
     // Buscar el partner en Odoo con diferentes combinaciones posibles
-    // Si Odoo tiene "+52 33 3642 7520", ilike necesita comodines % para ignorar los espacios
-    const likeLocal = `%${localPhone.slice(0, 2)}%${localPhone.slice(2, 6)}%${localPhone.slice(6, 10)}%`;
+    // Si Odoo tiene "+52 33 3642 7520" o "443 693 0710", ilike necesita comodines %
+    // Creamos un patrÃ³n que intercale '%' entre cada dÃ­gito local para ignorar espacios y guiones
+    const likePattern = `%${localPhone.split('').join('%')}%`;
 
     const searchDomain = [
       '|', '|', '|',
-      ['mobile', 'ilike', likeLocal],
-      ['phone', 'ilike', likeLocal],
+      ['mobile', 'ilike', likePattern],
+      ['phone', 'ilike', likePattern],
       ['mobile', 'ilike', localPhone],
       ['phone', 'ilike', localPhone]
     ];
