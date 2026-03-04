@@ -8,6 +8,10 @@ const ODOO_DB = process.env.ODOO_DB;
 const ODOO_USER = process.env.ODOO_SERVICE_USER;
 const ODOO_PASS = process.env.ODOO_SERVICE_PASSWORD;
 
+if (!ODOO_URL || !ODOO_DB || !ODOO_USER || !ODOO_PASS) {
+  console.warn("ADVERTENCIA: Faltan variables de entorno ODOO_ en este servidor.");
+}
+
 let sessionId: string | null = null;
 
 export async function authenticate() {
@@ -37,7 +41,7 @@ export async function authenticate() {
 
 export async function callKw(model: string, method: string, args: any[], kwargs: any = {}) {
   const sid = await authenticate();
-  
+
   const response = await fetch(`${ODOO_URL}/web/dataset/call_kw`, {
     method: 'POST',
     headers: {

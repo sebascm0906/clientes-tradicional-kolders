@@ -63,10 +63,9 @@ export async function POST(request: Request) {
 
   } catch (error: any) {
     console.error('Request Link Error:', error);
-    const isDev = process.env.NODE_ENV === 'development';
     return NextResponse.json({
       error: 'Error procesando solicitud.',
-      details: isDev ? error.message : undefined
+      details: error.message || String(error)
     }, { status: 500 });
   }
 }
