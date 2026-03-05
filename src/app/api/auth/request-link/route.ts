@@ -55,15 +55,13 @@ export async function POST(request: Request) {
       }, { status: 404 });
     }
 
-    // BYPASS TEMPORAL: Siempre generar el token aunque no haya N8N
-    const loginToken = await signToken({ partner_id: partner.id, b2b: true, phone: formattedPhone });
-    const magicLink = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/auth?token=${loginToken}`;
-
     // Enviar a N8N - Mismo mecanismo W03 KoldHome (Magic Link)
     const n8nUrl = process.env.N8N_WEBHOOK_URL_B2B || process.env.N8N_WEBHOOK_URL;
     if (n8nUrl) {
-      // Usamos .catch en vez de await para que no demore el login temporal
-      fetch(n8nUrl, {
+      const loginToken = await signToken({ partner_id: partner.id, b2b: true, phone: formattedPhone });
+      const magicLink = `${process.env.NEXT_PUBLIC_APP_URL}/auth?token=${loginToken}`;
+
+      await fetch(n8nUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -72,12 +70,11 @@ export async function POST(request: Request) {
           magic_link: magicLink,
           canal_origen: process.env.NEXT_PUBLIC_CANAL_ORIGEN || "pwa_canal_tradicional"
         })
-      }).catch(console.error);
+      });
     }
 
     return NextResponse.json({
-      message: 'Redirigiendo...',
-      bypass_link: magicLink
+      message: 'Si el número es correcto, recibirás un WhatsApp con tu enlace de acceso.',
     });
 
   } catch (error: any) {
