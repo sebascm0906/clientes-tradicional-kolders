@@ -108,7 +108,7 @@ export async function callKw(model: string, method: string, args: any[], kwargs:
     }
 
     if (data.error) {
-      console.error(`Odoo RPC Error [${model}.${method}]:`, JSON.stringify(data.error));
+      console.error(`Odoo RPC Error [${model}.${method}]:`, data.error?.data?.message || JSON.stringify(data.error));
       throw new Error(`Error en operación Odoo`);
     }
     return data.result;

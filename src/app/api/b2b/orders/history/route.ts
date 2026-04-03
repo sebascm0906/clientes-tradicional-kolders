@@ -12,13 +12,26 @@ export async function GET() {
     const payload = await verifyToken(sessionCookie);
     if (!payload?.partner_id || !payload.b2b) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
-    const orders = await callKw('sale.order', 'search_read', [
-       [['partner_id', '=', payload.partner_id], ['state', 'in', ['draft', 'sent', 'sale', 'done', 'cancel']], ['x_studio_canal_origen', 'in', ['pwa_canal_tradicional', 'botpress']]]
-    ], {
-       fields: ['name', 'amount_total', 'state', 'date_order', 'commitment_date', 'invoice_status', 'payment_term_id'],
-       order: 'date_order desc',
-       limit: 30
-    });
+    // Intentar con filtro x_studio_canal_origen, fallback sin él
+    let orders: any[];
+    try {
+      orders = await callKw('sale.order', 'search_read', [
+         [['partner_id', '=', payload.partner_id], ['state', 'in', ['draft', 'sent', 'sale', 'done', 'cancel']], ['x_studio_canal_origen', 'in', ['pwa_canal_tradicional', 'botpress']]]
+      ], {
+         fields: ['name', 'amount_total', 'state', 'date_order', 'commitment_date', 'invoice_status', 'payment_term_id'],
+         order: 'date_order desc',
+         limit: 30
+      });
+    } catch (studioError) {
+      // Fallback — sin filtro de canal (campo x_studio_* no existe aún)
+      orders = await callKw('sale.order', 'search_read', [
+         [['partner_id', '=', payload.partner_id], ['state', 'in', ['draft', 'sent', 'sale', 'done', 'cancel']]]
+      ], {
+         fields: ['name', 'amount_total', 'state', 'date_order', 'commitment_date', 'invoice_status', 'payment_term_id'],
+         order: 'date_order desc',
+         limit: 30
+      });
+    }
 
     // Usar allSettled para que un fallo en una orden no mate toda la lista
     const results = await Promise.allSettled(orders.map(async (o: any) => {

@@ -43,7 +43,7 @@ export async function POST(request: Request) {
 
     // 1. Obtener datos frescos del partner
     const partnerData = await callKw('res.partner', 'search_read', [[['id', '=', partnerId]]], {
-      fields: ['name', 'credit_limit', 'credit', 'property_payment_term_id', 'property_product_pricelist', 'user_id', 'company_id'],
+      fields: ['name', 'credit_limit', 'credit', 'property_payment_term_id', 'user_id', 'company_id'],
       limit: 1
     });
 
@@ -70,9 +70,7 @@ export async function POST(request: Request) {
       // Usar precio real del servidor, no el del cliente
     }
 
-    // 3. Definir Pricelist y Payment Term
-    const pricelistId = partner.property_product_pricelist ? partner.property_product_pricelist[0] : 81;
-
+    // 3. Definir Payment Term (no pasar pricelist_id — Odoo auto-asigna desde partner)
     let paymentTermId = false;
     if (payment_method === 'credito' && partner.property_payment_term_id) {
       paymentTermId = partner.property_payment_term_id[0];
@@ -104,34 +102,44 @@ export async function POST(request: Request) {
     const credito_disponible = partner.credit_limit - partner.credit;
     const supera_credito = total_con_iva > credito_disponible;
 
-    // 6. Company ID desde partner o env
+    // 6. Company context para multi-company Odoo
     const companyId = partner.company_id ? partner.company_id[0] : parseInt(process.env.ODOO_COMPANY_ID || '34');
+    const companyContext = { context: { allowed_company_ids: [companyId] } };
 
     // 7. Crear la Cotización (sale.order) en Draft
-    const orderFormat = {
+    const baseOrder: Record<string, any> = {
       partner_id: partnerId,
       company_id: companyId,
-      pricelist_id: pricelistId,
       payment_term_id: paymentTermId,
-      x_studio_canal_origen: "pwa_canal_tradicional",
-      x_studio_horario_de_entrega_solicitado: delivery_schedule || '',
       commitment_date: `${delivery_date} 12:00:00`,
       note: typeof notes === 'string' ? notes.substring(0, 2000) : '',
       order_line: odooOrderLines,
     };
 
-    const orderId = await callKw('sale.order', 'create', [orderFormat]);
+    let orderId: number;
+    try {
+      // Intentar con campos x_studio_* (existen si Odoo Studio los tiene)
+      orderId = await callKw('sale.order', 'create', [{
+        ...baseOrder,
+        x_studio_canal_origen: "pwa_canal_tradicional",
+        x_studio_horario_de_entrega_solicitado: delivery_schedule || '',
+      }], companyContext);
+    } catch (studioError) {
+      // Fallback sin campos studio
+      console.warn('sale.order create sin campos x_studio_*:', studioError);
+      orderId = await callKw('sale.order', 'create', [baseOrder], companyContext);
+    }
 
     // Obtener el Name (SO) generado
     const orderInfo = await callKw('sale.order', 'search_read', [[['id', '=', orderId]]], {
-      fields: ['name'], limit: 1
+      fields: ['name'], limit: 1, ...companyContext
     });
     const orderName = orderInfo[0]?.name || `ID-${orderId}`;
 
     // 8. Regla de Confirmación Automática
     let finalStatus = "draft";
     if (partner.credit_limit > 0 && !supera_credito && payment_method === 'credito') {
-      await callKw('sale.order', 'action_confirm', [[orderId]]);
+      await callKw('sale.order', 'action_confirm', [[orderId]], companyContext);
       finalStatus = "confirmed";
     }
 
@@ -171,8 +179,8 @@ export async function POST(request: Request) {
       ejecutivo_id: partner.user_id ? partner.user_id[0] : null
     });
 
-  } catch (error) {
-    console.error('B2B Create Order error:', error);
+  } catch (error: any) {
+    console.error('B2B Create Order error:', error?.message || error);
     return NextResponse.json({ error: 'Error al crear la orden. Intenta nuevamente.' }, { status: 500 });
   }
 }
