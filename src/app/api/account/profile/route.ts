@@ -24,6 +24,39 @@ export async function GET() {
 
     const partner = data[0];
 
+    // Obtener teléfono real del ejecutivo de ventas para WA dinámico
+    let executivePhone = null;
+    if (partner.user_id) {
+      try {
+        const users = await callKw('res.users', 'search_read', [
+          [['id', '=', partner.user_id[0]]]
+        ], {
+          fields: ['partner_id'],
+          limit: 1
+        });
+
+        if (users.length && users[0].partner_id) {
+          const execPartner = await callKw('res.partner', 'search_read', [
+            [['id', '=', users[0].partner_id[0]]]
+          ], {
+            fields: ['mobile', 'phone'],
+            limit: 1
+          });
+
+          if (execPartner.length) {
+            const rawPhone = execPartner[0].mobile || execPartner[0].phone;
+            if (rawPhone) {
+              executivePhone = rawPhone.replace(/\D/g, '');
+              if (executivePhone.length === 10) executivePhone = `52${executivePhone}`;
+              if (!executivePhone.startsWith('52')) executivePhone = `52${executivePhone}`;
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Error fetching executive phone:', e);
+      }
+    }
+
     return NextResponse.json({
       id: partner.id,
       name: partner.name,
@@ -34,6 +67,7 @@ export async function GET() {
       credit_limit: partner.credit_limit || 0,
       credit_used: partner.credit || 0,
       executive: partner.user_id ? partner.user_id[1] : 'Ejecutivo KOLD',
+      executive_phone: executivePhone,
       payment_term: partner.property_payment_term_id ? { id: partner.property_payment_term_id[0], name: partner.property_payment_term_id[1] } : null
     });
 

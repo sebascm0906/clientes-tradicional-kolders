@@ -17,13 +17,11 @@ function ConfirmationContent() {
   const isConfirmed = status === "confirmed";
   
   const handleContactExecutive = async () => {
-     if (!executiveId) return;
      try {
          const res = await fetch(`/api/account/profile`);
          const data = await res.json();
-         // If a phone exists in a full user fetch, we would use it. We'll fallback to a base WA format.
-         // In a deep integration we would fetch `res.users` for the exact phone number.
-         window.open(`https://wa.me/${process.env.NEXT_PUBLIC_WA_SALES || '5218110000000'}?text=${encodeURIComponent(`Hola soy ${data.name} (B2B). Quisiera saber sobre mi pedido ${orderName}`)}`, '_blank');
+         const waNumber = data.executive_phone || process.env.NEXT_PUBLIC_WA_SALES || '5218110000000';
+         window.open(`https://wa.me/${waNumber}?text=${encodeURIComponent(`Hola soy ${data.name} (B2B). Quisiera saber sobre mi pedido ${orderName}`)}`, '_blank');
      } catch (e) {
          window.open(`https://wa.me/${process.env.NEXT_PUBLIC_WA_SALES || '5218110000000'}?text=${encodeURIComponent(`Hola. Quisiera saber sobre mi pedido ${orderName}`)}`, '_blank');
      }

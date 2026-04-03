@@ -39,7 +39,8 @@ export default function AccountPage() {
 
   const contactExecutive = () => {
       if(!partner) return;
-      window.open(`https://wa.me/${process.env.NEXT_PUBLIC_WA_SALES || '5218110000000'}?text=${encodeURIComponent(`Hola, soy ${partner.name}. `)}`, '_blank');
+      const waNumber = partner.executive_phone || process.env.NEXT_PUBLIC_WA_SALES || '5218110000000';
+      window.open(`https://wa.me/${waNumber}?text=${encodeURIComponent(`Hola, soy ${partner.name}. `)}`, '_blank');
   }
 
   if (loading) {

@@ -11,6 +11,7 @@ export default function InvoicesPage() {
   const [showPaymentModal, setShowPaymentModal] = useState<any | null>(null);
   const [copied, setCopied] = useState(false);
   const [profile, setProfile] = useState<any>(null);
+  const [downloadingPdf, setDownloadingPdf] = useState<number | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -103,9 +104,26 @@ export default function InvoicesPage() {
                        </div>
                        
                        <div className="bg-muted/10 p-3 pt-4 border-t border-border flex gap-3">
-                           {/* Descarga PDF no cubierta en este snippet para brevedad, Odoo requires Report API. */}
-                           <button className="flex-1 bg-white border border-border text-foreground text-xs font-bold py-2.5 rounded-lg flex items-center justify-center gap-2 hover:bg-muted/50 transition-colors">
-                               <Download size={14} /> Ver PDF
+                           <button
+                             disabled={downloadingPdf === inv.id}
+                             onClick={async () => {
+                               setDownloadingPdf(inv.id);
+                               try {
+                                 const res = await fetch(`/api/b2b/invoices/${inv.id}/pdf`);
+                                 if (!res.ok) throw new Error('PDF no disponible');
+                                 const blob = await res.blob();
+                                 const url = URL.createObjectURL(blob);
+                                 window.open(url, '_blank');
+                                 setTimeout(() => URL.revokeObjectURL(url), 60000);
+                               } catch (e) {
+                                 alert('No se pudo obtener el PDF. Intenta más tarde.');
+                               } finally {
+                                 setDownloadingPdf(null);
+                               }
+                             }}
+                             className="flex-1 bg-white border border-border text-foreground text-xs font-bold py-2.5 rounded-lg flex items-center justify-center gap-2 hover:bg-muted/50 transition-colors disabled:opacity-50"
+                           >
+                               {downloadingPdf === inv.id ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} Ver PDF
                            </button>
                            <button onClick={() => setShowPaymentModal(inv)} className="flex-1 bg-primary text-white text-xs font-bold py-2.5 rounded-lg shadow-md hover:bg-primary/90 transition-colors">
                                Abonar / Pagar

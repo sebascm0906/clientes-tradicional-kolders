@@ -60,8 +60,8 @@ export async function POST(request: Request) {
 
     const magicLink = `${process.env.NEXT_PUBLIC_APP_URL}/auth?token=${loginToken}`;
 
-    // Enviar a N8N
-    const n8nUrl = process.env.N8N_WEBHOOK_URL_B2B || process.env.N8N_WEBHOOK_URL;
+    // Enviar a N8N — webhook de auth separado
+    const n8nUrl = process.env.N8N_WEBHOOK_AUTH || process.env.N8N_WEBHOOK_URL_B2B || process.env.N8N_WEBHOOK_URL;
     if (n8nUrl) {
       try {
         await fetch(n8nUrl, {

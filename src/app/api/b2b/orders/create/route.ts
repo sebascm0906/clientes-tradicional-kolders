@@ -135,8 +135,8 @@ export async function POST(request: Request) {
       finalStatus = "confirmed";
     }
 
-    // 9. Notificar n8n Ejecutivo Comercial
-    const webhookUrl = process.env.N8N_WEBHOOK_URL_B2B || process.env.N8N_WEBHOOK_URL;
+    // 9. Notificar n8n Ejecutivo Comercial — webhook de órdenes separado
+    const webhookUrl = process.env.N8N_WEBHOOK_ORDERS || process.env.N8N_WEBHOOK_URL_B2B || process.env.N8N_WEBHOOK_URL;
     if (webhookUrl) {
       try {
         await fetch(webhookUrl, {

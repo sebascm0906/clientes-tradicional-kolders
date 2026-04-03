@@ -73,16 +73,34 @@ export default function CartPage() {
   }
 
   const handleCheckout = async () => {
-    if (checkoutLoading) return; // Prevenir doble-click
+    if (checkoutLoading) return;
     setCheckoutLoading(true);
     setCheckoutError("");
 
     try {
+      // Paso 1: Validar carrito server-side contra Odoo (precios, stock, existencia)
+      const validateRes = await fetch('/api/cart/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cart_lines: items })
+      });
+
+      const validation = await validateRes.json();
+      if (!validateRes.ok) {
+        setCheckoutError(validation.error || "Error validando el carrito.");
+        return;
+      }
+
+      if (!validation.valid) {
+        const msgs = validation.issues.map((i: any) => i.message).join('\n');
+        setCheckoutError(`Problemas detectados:\n${msgs}`);
+        return;
+      }
+
+      // Paso 2: Crear la orden en Odoo con datos validados
       const res = await fetch('/api/b2b/orders/create', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           cart_lines: items,
           delivery_date: dateStr,

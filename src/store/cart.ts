@@ -70,7 +70,7 @@ export const useB2BCartStore = create<CartState>()(
     }),
     {
       name: "kold-b2b-cart",
-      storage: createJSONStorage(() => sessionStorage),
+      storage: createJSONStorage(() => localStorage),
     }
   )
 );
