@@ -29,6 +29,21 @@ Antes de presionar "Deploy", despliega la sección de **Environment Variables** 
 
 Asegúrate de cambiar los valores de prueba por los valores productivos reales (sobre todo ODOO_URL, JWT_SECRET, y las credenciales de WhatsApp/n8n).
 
+Para autenticación PWA con el workflow W15 de n8n, configura una de estas dos opciones:
+
+```bash
+N8N_AUTH_BASE_URL=https://n8n.grupofrio.mx/webhook
+```
+
+o, si prefieres URLs explícitas:
+
+```bash
+N8N_AUTH_REQUEST_URL=https://n8n.grupofrio.mx/webhook/pwa-auth-request
+N8N_AUTH_VERIFY_URL=https://n8n.grupofrio.mx/webhook/pwa-auth-verify
+```
+
+El canal por defecto es `pwa_canal_tradicional`; puedes sobrescribirlo con `NEXT_PUBLIC_CANAL_ORIGEN`.
+
 Una vez agregadas, presiona **Deploy**.
 
 ## Paso 4: Dominio sugerido

@@ -67,7 +67,7 @@ export default function Home() {
                 const res = await fetch("/api/auth/verify-code", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ code: otp })
+                  body: JSON.stringify({ code: otp, phone })
                 });
                 const data = await res.json();
                 if (!res.ok) {

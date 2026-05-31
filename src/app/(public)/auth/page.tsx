@@ -8,18 +8,19 @@ function AuthContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
+  const phone = searchParams.get("phone");
+  const missingAccessParams = !token || !phone;
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!token) {
-      setError("Token de acceso no válido o ausente.");
+    if (missingAccessParams) {
       return;
     }
 
     fetch("/api/auth/verify", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token })
+      body: JSON.stringify({ token, phone })
     })
       .then((res) => res.json().then(data => ({ status: res.status, data })))
       .then(({ status, data }) => {
@@ -30,9 +31,9 @@ function AuthContent() {
         }
       })
       .catch(() => setError("Error de conexión al servidor"));
-  }, [token, router]);
+  }, [missingAccessParams, token, phone, router]);
 
-  if (error) {
+  if (missingAccessParams || error) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-background">
         <div className="bg-card w-full max-w-sm rounded-3xl p-8 border border-border text-center shadow-lg">
@@ -40,7 +41,9 @@ function AuthContent() {
             ✖
           </div>
           <h1 className="text-xl font-bold mb-2">Acceso Denegado</h1>
-          <p className="text-muted-foreground text-sm mb-6">{error}</p>
+          <p className="text-muted-foreground text-sm mb-6">
+            {error || "Token de acceso no válido o ausente."}
+          </p>
           <button 
             onClick={() => router.replace("/")}
             className="w-full bg-primary text-white font-bold h-12 rounded-xl"
