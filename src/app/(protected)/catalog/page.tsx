@@ -8,6 +8,7 @@ interface CatalogItem {
   name: string;
   sku: string | null;
   price: number;
+  tax_rate?: number;
   uom: string;
   boxSize: number;
   stock: number;
@@ -134,6 +135,7 @@ export default function Catalog() {
           name: itemConfig.name,
           sku: itemConfig.sku || "",
           price: itemConfig.price,
+          tax_rate: itemConfig.tax_rate || 0,
           uom_name: itemConfig.uom,
           qty: rawQty,
           qtyPerPage: itemConfig.boxSize

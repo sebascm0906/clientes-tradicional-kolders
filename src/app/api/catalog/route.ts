@@ -61,7 +61,7 @@ export async function GET() {
     const domain: any[] = [['sale_ok', '=', true], ['qty_available', '>', 0]];
 
     const items = await callKw('product.product', 'search_read', [domain], {
-      fields: ['id', 'name', 'default_code', 'categ_id', 'uom_id', 'packaging_ids', 'qty_available', 'sale_line_warn_msg', 'lst_price', 'list_price'],
+      fields: ['id', 'name', 'default_code', 'categ_id', 'uom_id', 'packaging_ids', 'qty_available', 'sale_line_warn_msg', 'lst_price', 'list_price', 'taxes_id'],
       limit: 200
     });
 
@@ -115,6 +115,40 @@ export async function GET() {
       }
     }
 
+    // ── Impuesto real por producto (fuente de verdad Odoo, filtrado por compañía) ──
+    // La PWA NO debe inventar IVA 16%. Calculamos tax_rate desde los impuestos del
+    // producto que sean válidos para la compañía del partner (o globales). Si el
+    // producto solo tiene impuestos de otra compañía → tax_rate=0 (Odoo no los cobra).
+    let partnerCompanyId: number | false = false;
+    try {
+      const partnerRows = await callKw('res.partner', 'read', [[Number(payload.partner_id)]], { fields: ['company_id'] });
+      partnerCompanyId = partnerRows[0]?.company_id ? partnerRows[0].company_id[0] : false;
+    } catch { /* sin company → solo impuestos globales cuentan */ }
+
+    const allTaxIds: number[] = Array.from(new Set(ptItems.flatMap((it: any) => it.taxes_id || [])));
+    const taxInfoMap: Record<number, { amount: number; company: number | false }> = {};
+    if (allTaxIds.length > 0) {
+      try {
+        const taxRows = await callKw('account.tax', 'read', [allTaxIds], { fields: ['id', 'amount', 'company_id'] });
+        for (const t of taxRows) {
+          taxInfoMap[t.id] = { amount: t.amount || 0, company: t.company_id ? t.company_id[0] : false };
+        }
+      } catch (taxErr) {
+        console.warn('[B2B_PRICING] no se pudo leer impuestos del catálogo', taxErr);
+      }
+    }
+    // tax_rate del producto = suma de % de impuestos válidos para la compañía.
+    const taxRateForProduct = (taxes: number[] | undefined): number => {
+      let rate = 0;
+      for (const tid of taxes || []) {
+        const info = taxInfoMap[tid];
+        if (info && (info.company === false || info.company === partnerCompanyId)) {
+          rate += info.amount;
+        }
+      }
+      return Math.round(rate * 100) / 100;
+    };
+
     const catalogItems = ptItems.map((item: any) => {
       const categId = item.categ_id?.[0] || 0;
       const categPath = categPathMap[categId] || item.categ_id?.[1] || '';
@@ -130,6 +164,9 @@ export async function GET() {
         // base/list_price informativo — útil para mostrar tachado si hay descuento
         list_price: Math.round((item.lst_price || item.list_price || 0) * 100) / 100,
         pricing_rule: resolved?.rule || 'list_price',
+        // Tasa de impuesto REAL del producto para la compañía (0 si no aplica).
+        // El carrito usa esto en vez de asumir 16%.
+        tax_rate: taxRateForProduct(item.taxes_id),
         uom: item.uom_id ? item.uom_id[1] : 'pza',
         boxSize: packagingMap[item.id] || 1,
         stock: item.qty_available,

@@ -11,6 +11,9 @@ export interface B2BCartItem {
   qty: number;
   qtyPerPage: number;
   note?: string; // B2B Specific Instructions
+  // Tasa de impuesto REAL del producto (desde Odoo, vía /api/catalog).
+  // undefined/0 = sin IVA. NUNCA asumir 16%.
+  tax_rate?: number;
 }
 
 interface CartState {

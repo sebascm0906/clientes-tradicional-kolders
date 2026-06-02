@@ -60,7 +60,11 @@ export default function CartPage() {
   }
 
   const subtotal = getTotal();
-  const iva = Math.round(subtotal * 0.16 * 100) / 100;
+  // IVA desde el impuesto REAL de cada producto (tax_rate de Odoo), no asumir 16%.
+  // Producto sin impuesto válido → tax_rate 0 → no infla el total.
+  const iva = Math.round(
+    items.reduce((acc, it) => acc + it.price * it.qty * ((it.tax_rate || 0) / 100), 0) * 100
+  ) / 100;
   const total = Math.round((subtotal + iva) * 100) / 100;
 
   let creditoDisponible = 0;
@@ -241,7 +245,7 @@ export default function CartPage() {
                       <span>${subtotal.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
                    </div>
                    <div className="flex justify-between items-center text-sm font-medium text-muted-foreground mb-3">
-                      <span>IVA (16%)</span>
+                      <span>IVA</span>
                       <span>${iva.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
                    </div>
                    <div className="flex justify-between items-center border-t border-border pt-2 text-primary font-extrabold text-lg">
