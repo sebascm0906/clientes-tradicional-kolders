@@ -127,26 +127,48 @@ export async function POST(request: Request) {
       console.warn('[B2B_PRICING] order-create resolver failed, falling back to lst_price', priceErr);
     }
 
-    // Re-fetch nombres para defensa (si resolver falló, no tenemos nombre)
+    // Re-fetch nombres + impuestos para defensa (si resolver falló, no tenemos nombre)
+    // taxes_id: impuestos de venta REALES del producto en Odoo (no hardcodear IVA).
     const productsBasic = await callKw('product.product', 'search_read', [[['id', 'in', productIds]]], {
-      fields: ['id', 'name', 'lst_price', 'list_price'],
+      fields: ['id', 'name', 'lst_price', 'list_price', 'taxes_id'],
     });
-    const productInfo: Record<number, { name: string; fallback_price: number }> = {};
+    const productInfo: Record<number, { name: string; fallback_price: number; taxes_id: number[] }> = {};
     for (const p of productsBasic) {
-      productInfo[p.id] = { name: p.name, fallback_price: p.lst_price || p.list_price || 0 };
+      productInfo[p.id] = {
+        name: p.name,
+        fallback_price: p.lst_price || p.list_price || 0,
+        taxes_id: Array.isArray(p.taxes_id) ? p.taxes_id : [],
+      };
     }
     for (const line of cart_lines) {
       if (!productInfo[line.product_id]) {
         return NextResponse.json({ error: `Producto no encontrado: ${line.name || line.product_id}` }, { status: 400 });
       }
+      // Warning si el producto no tiene impuesto configurado (NO inventamos IVA)
+      if (productInfo[line.product_id].taxes_id.length === 0) {
+        console.warn('[B2B_ORDER] producto sin impuesto de venta configurado (taxes_id vacío)', {
+          product_id: line.product_id,
+          name: productInfo[line.product_id].name,
+        });
+      }
     }
 
-    // ── 4. Pricelist + payment term ────────────────────────────────────────
+    // ── 4. Pricelist + payment term + método de pago ───────────────────────
     const pricelistId = await getPartnerPricelistId(partnerId);
     let paymentTermId: number | false = false;
     if (payment_method === 'credito' && partner.property_payment_term_id) {
       paymentTermId = partner.property_payment_term_id[0];
     }
+    // Mapeo método PWA → selection real de sale.order.payment_method en Odoo.
+    // Canal tradicional B2B: solo efectivo/tarjeta. Tarjeta = intención (sin cobro
+    // Stripe en este flujo; el link automático es follow-up P1). Default seguro: cash.
+    const PAYMENT_METHOD_MAP: Record<string, string> = {
+      efectivo: 'cash',
+      tarjeta: 'card',
+      transferencia: 'transfer',
+      credito: 'credit',
+    };
+    const odooPaymentMethod = PAYMENT_METHOD_MAP[payment_method] || 'cash';
 
     // ── 5. Order lines con precio resuelto ─────────────────────────────────
     const odooOrderLines = cart_lines.map((l: any) => {
@@ -161,6 +183,9 @@ export async function POST(request: Request) {
         product_uom_qty: l.qty,
         price_unit: serverPrice,
         name: nameWithNote,
+        // Impuestos REALES del producto (Odoo no los auto-aplica al crear vía API
+        // con price_unit explícito). Sin esto, amount_tax queda en 0 → IVA roto.
+        tax_id: [[6, 0, productInfo[l.product_id].taxes_id]],
       }];
     });
 
@@ -186,6 +211,12 @@ export async function POST(request: Request) {
       commitment_date: `${delivery_date} 12:00:00`,
       note: typeof notes === 'string' ? notes.substring(0, 2000) : '',
       order_line: odooOrderLines,
+      // Método de pago elegido en la PWA (cash/card) — campo selection real.
+      payment_method: odooPaymentMethod,
+      // Estado de pago inicial: pendiente (no hay cobro en este flujo).
+      x_payment_status: 'pending',
+      // Origen del pedido para trazabilidad/segmentación.
+      x_kold_order_source: 'pwa_b2b',
     };
     // Pasar pricelist_id explícito si el partner lo tiene asignado
     if (pricelistId) {

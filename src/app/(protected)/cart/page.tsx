@@ -21,7 +21,7 @@ export default function CartPage() {
 
   const [dateStr, setDateStr] = useState(format(addDays(new Date(), 1), "yyyy-MM-dd"));
   const [horario, setHorario] = useState("Mañana (8:00 - 13:00)");
-  const [paymentMethod, setPaymentMethod] = useState("credito");
+  const [paymentMethod, setPaymentMethod] = useState("efectivo");
   const [notes, setNotes] = useState("");
 
   useEffect(() => {
@@ -31,9 +31,7 @@ export default function CartPage() {
       .then(data => {
         if (!data.error) {
           setPartner(data);
-          if (data.credit_limit <= 0) {
-            setPaymentMethod("transferencia");
-          }
+          // Canal tradicional B2B: solo efectivo/tarjeta. Default efectivo.
         }
         setLoadingProfile(false);
       })
@@ -261,9 +259,8 @@ export default function CartPage() {
                          onChange={e => setPaymentMethod(e.target.value)}
                          className="w-full h-11 bg-white border border-border rounded-lg px-3 text-sm font-bold outline-none focus:ring-2 focus:ring-primary"
                        >
-                           {partner.credit_limit > 0 && <option value="credito">Condición Autorizada: {partner.payment_term?.name || 'Crédito'}</option>}
-                           <option value="transferencia">Transferencia Bancaria SPEI</option>
                            <option value="efectivo">Efectivo contra entrega</option>
+                           <option value="tarjeta">Tarjeta</option>
                        </select>
                     </div>
 
