@@ -153,15 +153,35 @@ export async function POST(request: Request) {
       }
     }
 
-    // ── 4. Pricelist + payment term + método de pago ───────────────────────
+    // ── 4. Compañía + pricelist + payment term + método de pago ────────────
+    const companyId = partner.company_id ? partner.company_id[0] : parseInt(process.env.ODOO_COMPANY_ID || '34');
     const pricelistId = await getPartnerPricelistId(partnerId);
+
+    // Validar que la pricelist del partner sea de la compañía de la orden (o global).
+    // Si es de otra compañía, NO la pasamos (rompería el create) — Odoo auto-asigna
+    // la pricelist por defecto de la compañía. Se loguea para corrección en Odoo.
+    let pricelistIdForOrder: number | false = false;
+    if (pricelistId) {
+      try {
+        const plRows = await callKw('product.pricelist', 'read', [[pricelistId]], { fields: ['id', 'company_id'] });
+        const plCompany = plRows[0]?.company_id ? plRows[0].company_id[0] : false;
+        if (!plCompany || plCompany === companyId) {
+          pricelistIdForOrder = pricelistId;
+        } else {
+          console.warn('[B2B_PRICING] pricelist_company_mismatch — pricelist de otra compañía; Odoo auto-asignará la default', {
+            partner_id: partnerId, pricelist_id: pricelistId, pricelist_company: plCompany, order_company: companyId,
+          });
+        }
+      } catch (plErr: any) {
+        console.warn('[B2B_PRICING] no se pudo validar compañía de pricelist', { pricelist_id: pricelistId, err: plErr?.message });
+      }
+    }
+
     let paymentTermId: number | false = false;
     if (payment_method === 'credito' && partner.property_payment_term_id) {
       paymentTermId = partner.property_payment_term_id[0];
     }
     // Mapeo método PWA → selection real de sale.order.payment_method en Odoo.
-    // Canal tradicional B2B: solo efectivo/tarjeta. Tarjeta = intención (sin cobro
-    // Stripe en este flujo; el link automático es follow-up P1). Default seguro: cash.
     const PAYMENT_METHOD_MAP: Record<string, string> = {
       efectivo: 'cash',
       tarjeta: 'card',
@@ -170,23 +190,55 @@ export async function POST(request: Request) {
     };
     const odooPaymentMethod = PAYMENT_METHOD_MAP[payment_method] || 'cash';
 
-    // ── 5. Order lines con precio resuelto ─────────────────────────────────
+    // ── 4b. Impuestos válidos por producto (filtrados por compañía) ─────────
+    // NO copiamos impuestos de otra compañía (rompen el create) NI forzamos IVA 16%.
+    // Solo pasamos impuestos cuya compañía sea la de la orden o globales. Si no hay
+    // válidos, NO mandamos tax_id → Odoo decide según su configuración fiscal real.
+    const allTaxIds = Array.from(new Set(Object.values(productInfo).flatMap((p) => p.taxes_id)));
+    const taxCompanyMap: Record<number, number | false> = {};
+    if (allTaxIds.length) {
+      try {
+        const taxRows = await callKw('account.tax', 'read', [allTaxIds], { fields: ['id', 'company_id'] });
+        for (const t of taxRows) {
+          taxCompanyMap[t.id] = t.company_id ? t.company_id[0] : false;
+        }
+      } catch (taxErr: any) {
+        console.warn('[B2B_ORDER] no se pudo leer compañías de impuestos', { err: taxErr?.message });
+      }
+    }
+    const validTaxIdsByProduct: Record<number, number[]> = {};
+    for (const [pidStr, info] of Object.entries(productInfo)) {
+      const pid = Number(pidStr);
+      const valid = info.taxes_id.filter((tid) => {
+        const c = taxCompanyMap[tid];
+        return c === false || c === undefined || c === companyId;
+      });
+      validTaxIdsByProduct[pid] = valid;
+      if (info.taxes_id.length > 0 && valid.length === 0) {
+        console.warn('[B2B_ORDER] tax_mismatch_data_error — producto con impuesto de otra compañía; se omite tax_id (corregir en Odoo)', {
+          product_id: pid, name: info.name, product_taxes: info.taxes_id, order_company: companyId,
+        });
+      }
+    }
+
+    // ── 5. Order lines — precio e impuesto los resuelve Odoo (fuente de verdad) ──
+    // NO pasamos price_unit: Odoo lo computa desde la pricelist de la orden.
+    // tax_id: solo impuestos válidos de la compañía; si no hay, se omite (no se inventa).
     const odooOrderLines = cart_lines.map((l: any) => {
-      const resolved = pricelistMap[l.product_id];
-      const serverPrice = resolved ? resolved.price : productInfo[l.product_id].fallback_price;
       let nameWithNote = productInfo[l.product_id].name;
       if (l.note && typeof l.note === 'string' && l.note.trim() !== '') {
         nameWithNote += `\nInstrucción Comercial: ${l.note.substring(0, 500)}`;
       }
-      return [0, 0, {
+      const lineVals: Record<string, any> = {
         product_id: l.product_id,
         product_uom_qty: l.qty,
-        price_unit: serverPrice,
         name: nameWithNote,
-        // Impuestos REALES del producto (Odoo no los auto-aplica al crear vía API
-        // con price_unit explícito). Sin esto, amount_tax queda en 0 → IVA roto.
-        tax_id: [[6, 0, productInfo[l.product_id].taxes_id]],
-      }];
+      };
+      const validTaxes = validTaxIdsByProduct[l.product_id] || [];
+      if (validTaxes.length) {
+        lineVals.tax_id = [[6, 0, validTaxes]];
+      }
+      return [0, 0, lineVals];
     });
 
     const subtotal = cart_lines.reduce((tot: number, item: any) => {
@@ -200,7 +252,6 @@ export async function POST(request: Request) {
     const supera_credito = total_con_iva > credito_disponible;
 
     // ── 6. Multi-company context ──────────────────────────────────────────
-    const companyId = partner.company_id ? partner.company_id[0] : parseInt(process.env.ODOO_COMPANY_ID || '34');
     const companyContext = { context: { allowed_company_ids: [companyId] } };
 
     // ── 7. Crear sale.order ───────────────────────────────────────────────
@@ -218,9 +269,10 @@ export async function POST(request: Request) {
       // Origen del pedido para trazabilidad/segmentación.
       x_kold_order_source: 'pwa_b2b',
     };
-    // Pasar pricelist_id explícito si el partner lo tiene asignado
-    if (pricelistId) {
-      baseOrder.pricelist_id = pricelistId;
+    // Pasar pricelist_id SOLO si es de la compañía de la orden (validado arriba).
+    // Si es de otra compañía, se omite → Odoo auto-asigna la default de la compañía.
+    if (pricelistIdForOrder) {
+      baseOrder.pricelist_id = pricelistIdForOrder;
     }
     // Idempotency key — campo Studio existente (x_kold_idempotency_key)
     baseOrder.x_kold_idempotency_key = idempotencyKey;
