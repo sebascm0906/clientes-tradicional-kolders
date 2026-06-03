@@ -149,6 +149,27 @@ export async function GET() {
       return Math.round(rate * 100) / 100;
     };
 
+    // ── Detección de foto real (server-side; NUNCA se devuelve base64 al cliente) ──
+    // /web/image de Odoo es PÚBLICO y sirve un placeholder genérico (HTTP 200) para
+    // productos sin foto. Para mostrar NUESTRO placeholder por categoría en los huecos,
+    // necesitamos saber qué productos SÍ tienen foto. Leemos image_128 (el más liviano)
+    // solo para detectar presencia y lo descartamos: el catálogo devuelve únicamente
+    // `image_url` (string), nunca el base64.
+    // Nota: en piloto (1 distribuidor) el costo es despreciable; a escala conviene
+    // precomputar/cachear este indicador.
+    const odooBase = (process.env.ODOO_URL || '').replace(/\/+$/, '');
+    const withImage = new Set<number>();
+    if (odooBase && productIdsForPricing.length > 0) {
+      try {
+        const imgRows = await callKw('product.product', 'search_read', [[['id', 'in', productIdsForPricing]]], {
+          fields: ['id', 'image_128'],
+        });
+        for (const r of imgRows) { if (r.image_128) withImage.add(r.id); }
+      } catch (imgErr) {
+        console.warn('[B2B_CATALOG] no se pudo detectar imágenes de producto', imgErr);
+      }
+    }
+
     const catalogItems = ptItems.map((item: any) => {
       const categId = item.categ_id?.[0] || 0;
       const categPath = categPathMap[categId] || item.categ_id?.[1] || '';
@@ -167,6 +188,9 @@ export async function GET() {
         // Tasa de impuesto REAL del producto para la compañía (0 si no aplica).
         // El carrito usa esto en vez de asumir 16%.
         tax_rate: taxRateForProduct(item.taxes_id),
+        // URL pública de la imagen del producto (image_256) SOLO si tiene foto real.
+        // null => el front muestra placeholder por categoría. Nunca base64.
+        image_url: withImage.has(item.id) ? `${odooBase}/web/image/product.product/${item.id}/image_256` : null,
         uom: item.uom_id ? item.uom_id[1] : 'pza',
         boxSize: packagingMap[item.id] || 1,
         stock: item.qty_available,

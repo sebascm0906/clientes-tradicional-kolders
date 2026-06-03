@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, useMemo } from "react";
 import { useB2BCartStore } from "@/store/cart";
-import { Search, Loader2, AlertCircle, ChevronDown, ShoppingCart } from "lucide-react";
+import { Search, Loader2, AlertCircle, ChevronDown, ShoppingCart, Snowflake, Package } from "lucide-react";
 
 interface CatalogItem {
   id: number;
@@ -9,6 +9,7 @@ interface CatalogItem {
   sku: string | null;
   price: number;
   tax_rate?: number;
+  image_url?: string | null;
   uom: string;
   boxSize: number;
   stock: number;
@@ -27,6 +28,8 @@ export default function Catalog() {
   const [search, setSearch] = useState("");
   const [activeFamily, setActiveFamily] = useState<string>("ALL");
   const [collapsedSubgroups, setCollapsedSubgroups] = useState<Set<string>>(new Set());
+  // Ids de productos cuya <img> falló al cargar -> mostrar placeholder por categoría.
+  const [brokenImg, setBrokenImg] = useState<Set<number>>(new Set());
 
   const [partner, setPartner] = useState<any>(null);
 
@@ -269,6 +272,24 @@ export default function Catalog() {
                             key={item.id}
                             className={`px-4 py-3 flex items-center gap-3 transition-colors ${inCart ? 'bg-blue-50/40' : ''}`}
                           >
+                            {/* Thumbnail: foto pública de Odoo (lazy) o placeholder por categoría */}
+                            <div className="flex-shrink-0 w-12 h-12 rounded-lg overflow-hidden bg-secondary border border-border flex items-center justify-center">
+                              {item.image_url && !brokenImg.has(item.id) ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={item.image_url}
+                                  alt={item.name}
+                                  loading="lazy"
+                                  className="w-full h-full object-cover"
+                                  onError={() => setBrokenImg(prev => { const n = new Set(prev); n.add(item.id); return n; })}
+                                />
+                              ) : item.family_key === 'KOLD' ? (
+                                <Package className="w-5 h-5 text-muted-foreground/40" />
+                              ) : (
+                                <Snowflake className="w-5 h-5 text-muted-foreground/40" />
+                              )}
+                            </div>
+
                             <div className="flex-1 min-w-0">
                               <h3 className="font-semibold text-sm text-foreground leading-tight line-clamp-2" title={item.name}>
                                 {item.name}
