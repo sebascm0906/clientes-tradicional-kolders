@@ -24,12 +24,29 @@ export async function POST(request: Request) {
     const products = await callKw('product.product', 'search_read', [
       [['id', 'in', productIds], ['sale_ok', '=', true]]
     ], {
-      fields: ['id', 'name', 'lst_price', 'list_price', 'qty_available'],
+      fields: ['id', 'name', 'lst_price', 'list_price', 'qty_available', 'taxes_id'],
     });
 
     const productMap: Record<number, any> = {};
     for (const p of products) {
       productMap[p.id] = p;
+    }
+
+    // ── IVA real por producto (fuente de verdad Odoo, filtrado por compañía) ──
+    // No asumir 16%: mismo criterio que /api/catalog y /api/b2b/orders/create.
+    const allTaxIds: number[] = Array.from(new Set(products.flatMap((p: any) => p.taxes_id || [])));
+    const taxInfoMap: Record<number, { amount: number; company: number | false }> = {};
+    if (allTaxIds.length > 0) {
+      try {
+        const taxRows = await callKw('account.tax', 'search_read', [[['id', 'in', allTaxIds]]], {
+          fields: ['id', 'amount', 'company_id'],
+        });
+        for (const t of taxRows) {
+          taxInfoMap[t.id] = { amount: t.amount || 0, company: t.company_id ? t.company_id[0] : false };
+        }
+      } catch (taxErr) {
+        console.warn('[B2B_PRICING] cart-validate: no se pudo leer impuestos', taxErr);
+      }
     }
 
     // ── P0 FIX: revalidar precios usando pricelist del partner ──
@@ -100,21 +117,40 @@ export async function POST(request: Request) {
 
     // Obtener crédito actualizado
     const partnerData = await callKw('res.partner', 'search_read', [[['id', '=', payload.partner_id]]], {
-      fields: ['credit_limit', 'credit'],
+      fields: ['credit_limit', 'credit', 'company_id'],
       limit: 1
     });
 
     const partner = partnerData[0];
     const creditAvailable = partner ? (partner.credit_limit - partner.credit) : 0;
+    const partnerCompanyId: number | false = partner?.company_id ? partner.company_id[0] : false;
+
+    // Tasa real de impuesto del producto = suma de % de impuestos válidos para la compañía
+    // del partner (impuesto global o de su empresa). Productos sin IVA → 0 (NO se asume 16%).
+    const taxRateForProduct = (taxes: number[] | undefined): number => {
+      let rate = 0;
+      for (const tid of taxes || []) {
+        const info = taxInfoMap[tid];
+        if (info && (info.company === false || info.company === partnerCompanyId)) rate += info.amount;
+      }
+      return rate;
+    };
 
     const serverSubtotal = validated_lines.reduce((acc, l) => acc + l.server_price * l.qty, 0);
-    const serverTotal = Math.round(serverSubtotal * 1.16 * 100) / 100;
+    const serverTax = validated_lines.reduce((acc, l) => {
+      const taxes = productMap[l.product_id]?.taxes_id;
+      return acc + l.server_price * l.qty * (taxRateForProduct(taxes) / 100);
+    }, 0);
+    const serverSubtotalR = Math.round(serverSubtotal * 100) / 100;
+    const serverTaxR = Math.round(serverTax * 100) / 100;
+    const serverTotal = Math.round((serverSubtotal + serverTax) * 100) / 100;
 
     return NextResponse.json({
       valid: issues.length === 0,
       issues,
       validated_lines,
-      server_subtotal: serverSubtotal,
+      server_subtotal: serverSubtotalR,
+      server_tax: serverTaxR,
       server_total: serverTotal,
       credit_available: creditAvailable,
       exceeds_credit: serverTotal > creditAvailable

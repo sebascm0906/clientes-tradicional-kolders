@@ -35,16 +35,16 @@ function ConfirmationContent() {
        </div>
 
        <h1 className="text-3xl font-bold font-display text-foreground mb-2">
-           {isConfirmed ? "¡Pedido Confirmado!" : "Cotización en Revisión"}
+           {isConfirmed ? "¡Pedido Confirmado!" : "¡Pedido recibido!"}
        </h1>
        <div className="bg-white px-4 py-2 border border-border rounded-lg inline-block text-lg font-extrabold text-foreground mb-6 shadow-sm">
            {orderName}
        </div>
 
        <p className="text-muted-foreground mb-8 text-balance max-w-sm">
-           {isConfirmed 
+           {isConfirmed
              ? `Reserva autorizada en almacén. Tu ejecutivo comercial ${executiveName} ya ha sido notificado sobre la entrega próxima.`
-             : `Este pedido se encuentra bajo revisión por superar tu línea de crédito o requerir coordinación de ${executiveName}. Tu ejecutivo te contactará en breve para asegurar tu entrega.`
+             : `Tu pedido ${orderName} fue recibido. Tu ejecutivo revisará disponibilidad y entrega, y te confirmará en breve.`
            }
        </p>
 
