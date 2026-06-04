@@ -31,6 +31,28 @@ import { randomUUID, createHash } from 'crypto';
  *      n_lines. Sin credenciales ni base64.
  */
 
+/**
+ * Resuelve el almacén (warehouse_id) para un partner de forma DETERMINÍSTICA y auditable.
+ *
+ * Regla (sin invención):
+ *   1. Si el partner tiene `x_warehouse_id` ("Almacén / CEDIS Asignado") → se usa.
+ *      Es el campo maestro en Odoo; ~90% de cobertura en empresas de la cía 34.
+ *   2. Si NO está poblado → devuelve null: NO se inventa almacén. Odoo usará su default
+ *      de compañía y se registra un warning; el dato maestro debe poblarse en Odoo.
+ *
+ * NO se usa `commercial_chain_plaza_id` (hoy vacío y sin mapeo a almacén).
+ * TODO(odoo-data): poblar `x_warehouse_id` en los partners que falten (231 en cía 34 al
+ *   2026-06-03). Ej.: partner 54907 (Guadalajara) debe apuntar a 94 "CEDIS Guadalajara".
+ * TODO(config): si se formaliza un mapping plaza→almacén, moverlo a configuración Odoo.
+ */
+function resolveWarehouseForPartner(partner: { x_warehouse_id?: [number, string] | false }): { warehouseId: number | null; source: string } {
+  const wh = partner?.x_warehouse_id;
+  if (Array.isArray(wh) && typeof wh[0] === 'number') {
+    return { warehouseId: wh[0], source: 'partner.x_warehouse_id' };
+  }
+  return { warehouseId: null, source: 'unresolved' };
+}
+
 export async function POST(request: Request) {
   try {
     const sessionCookie = (await cookies()).get('session')?.value;
@@ -69,7 +91,7 @@ export async function POST(request: Request) {
 
     // ── 1. Datos frescos del partner ───────────────────────────────────────
     const partnerData = await callKw('res.partner', 'search_read', [[['id', '=', partnerId]]], {
-      fields: ['name', 'credit_limit', 'credit', 'property_payment_term_id', 'user_id', 'company_id', 'property_product_pricelist'],
+      fields: ['name', 'credit_limit', 'credit', 'property_payment_term_id', 'user_id', 'company_id', 'property_product_pricelist', 'x_warehouse_id'],
       limit: 1,
     });
     if (!partnerData.length) return NextResponse.json({ error: 'Cuenta no encontrada' }, { status: 404 });
@@ -254,6 +276,21 @@ export async function POST(request: Request) {
     // ── 6. Multi-company context ──────────────────────────────────────────
     const companyContext = { context: { allowed_company_ids: [companyId] } };
 
+    // ── 6b. Resolver almacén del cliente (warehouse_id) ───────────────────
+    // Sin esto, Odoo asigna el almacén default de la compañía (CEDIS Iguala) a TODOS
+    // los pedidos PWA, aunque el cliente sea de otra plaza. Esto NO confirma el pedido
+    // ni crea picking: solo deja el pedido (draft) en el almacén correcto.
+    const { warehouseId, source: warehouseSource } = resolveWarehouseForPartner(partner);
+    console.info('[B2B_WAREHOUSE]', {
+      partner_id: partnerId,
+      company_id: companyId,
+      warehouse_id: warehouseId,
+      source: warehouseSource,
+    });
+    if (!warehouseId) {
+      console.warn('[B2B_WAREHOUSE] partner sin x_warehouse_id → Odoo usará el almacén default de la compañía. Poblar dato maestro en Odoo.', { partner_id: partnerId });
+    }
+
     // ── 7. Crear sale.order ───────────────────────────────────────────────
     const baseOrder: Record<string, any> = {
       partner_id: partnerId,
@@ -273,6 +310,11 @@ export async function POST(request: Request) {
     // Si es de otra compañía, se omite → Odoo auto-asigna la default de la compañía.
     if (pricelistIdForOrder) {
       baseOrder.pricelist_id = pricelistIdForOrder;
+    }
+    // Almacén del cliente SOLO si se resolvió desde x_warehouse_id (no inventar).
+    // Si es null, se omite y Odoo usa el default de compañía (comportamiento actual).
+    if (warehouseId) {
+      baseOrder.warehouse_id = warehouseId;
     }
     // Idempotency key — campo Studio existente (x_kold_idempotency_key)
     baseOrder.x_kold_idempotency_key = idempotencyKey;
