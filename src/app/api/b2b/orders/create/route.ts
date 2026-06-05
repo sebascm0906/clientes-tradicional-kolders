@@ -32,25 +32,65 @@ import { randomUUID, createHash } from 'crypto';
  */
 
 /**
- * Resuelve el almacén (warehouse_id) para un partner de forma DETERMINÍSTICA y auditable.
+ * Mapa prefijo de Unidad de Negocio ([XXX] en x_analytic_un_id) → CEDIS (stock.warehouse).
+ * Verificado en Odoo 2026-06-04 contra la cobertura real de partners de la compañía 34.
+ * TODO(config): mover este mapa a configuración Odoo (p.ej. un campo warehouse en la
+ *   cuenta analítica) para no hardcodearlo en código.
+ */
+const PLAZA_PREFIX_TO_WAREHOUSE: Record<string, number> = {
+  '[GDL]': 94,   // CEDIS Guadalajara
+  '[IGU]': 89,   // CEDIS Iguala
+  '[MRL]': 120,  // CEDIS Morelia
+  '[TOL]': 90,   // CEDIS Toluca
+  '[CUER]': 97,  // CEDIS Cuernavaca
+  '[CDMX]': 98,  // CEDIS Ciudad de México
+  '[MAN]': 123,  // CEDIS Manzanillo
+  '[ZIH]': 99,   // CEDIS Zihuatanejo
+};
+
+/**
+ * Resuelve el almacén (warehouse_id) de un partner de forma DETERMINÍSTICA y auditable.
+ *
+ * Dos campos maestros DISTINTOS en res.partner:
+ *   • `x_analytic_un_id` ("Unidad de Negocio", cuenta analítica, ej. "[GDL] Guadalajara")
+ *     = la PLAZA / CEDIS COMERCIAL del cliente (a qué unidad de negocio pertenece).
+ *   • `x_warehouse_id` ("Almacén / CEDIS Asignado")
+ *     = el ALMACÉN / CEDIS OPERATIVO-LOGÍSTICO desde el que se surte.
  *
  * Regla (sin invención):
- *   1. Si el partner tiene `x_warehouse_id` ("Almacén / CEDIS Asignado") → se usa.
- *      Es el campo maestro en Odoo; ~90% de cobertura en empresas de la cía 34.
- *   2. Si NO está poblado → devuelve null: NO se inventa almacén. Odoo usará su default
- *      de compañía y se registra un warning; el dato maestro debe poblarse en Odoo.
+ *   1. Si `x_warehouse_id` está poblado → se usa (almacén operativo explícito). source: x_warehouse_id
+ *   2. Si no, se resuelve por el prefijo [XXX] de `x_analytic_un_id` (plaza comercial)
+ *      mapeado a su CEDIS. source: x_analytic_un_id:[XXX]
+ *   3. Si no se puede resolver → null + warning. NO se inventa almacén: el pedido se crea
+ *      SIN warehouse_id y el error/default de Odoo queda VISIBLE (no se oculta con reintentos).
  *
- * NO se usa `commercial_chain_plaza_id` (hoy vacío y sin mapeo a almacén).
- * TODO(odoo-data): poblar `x_warehouse_id` en los partners que falten (231 en cía 34 al
- *   2026-06-03). Ej.: partner 54907 (Guadalajara) debe apuntar a 94 "CEDIS Guadalajara".
- * TODO(config): si se formaliza un mapping plaza→almacén, moverlo a configuración Odoo.
+ * NO se usa company_id como fallback (equivaldría al default CEDIS Iguala, justo lo que
+ * queremos evitar para clientes de otras plazas).
+ *
+ * NOTA: la autoconfirmación (action_confirm / picking) sigue BLOQUEADA hasta que el
+ * warehouse/plaza estén correctos en los partners y exista el gate de validaciones. Este
+ * resolver solo asigna el almacén del pedido en estado draft.
  */
-function resolveWarehouseForPartner(partner: { x_warehouse_id?: [number, string] | false }): { warehouseId: number | null; source: string } {
+function resolveWarehouseForPartner(
+  partner: { x_warehouse_id?: [number, string] | false; x_analytic_un_id?: [number, string] | false }
+): { warehouseId: number | null; source: string; warning?: string } {
+  // 1. Campo explícito de almacén operativo.
   const wh = partner?.x_warehouse_id;
   if (Array.isArray(wh) && typeof wh[0] === 'number') {
-    return { warehouseId: wh[0], source: 'partner.x_warehouse_id' };
+    return { warehouseId: wh[0], source: 'x_warehouse_id' };
   }
-  return { warehouseId: null, source: 'unresolved' };
+  // 2. Unidad de negocio / plaza comercial (cuenta analítica) → mapeo por prefijo.
+  const un = partner?.x_analytic_un_id;
+  if (Array.isArray(un) && typeof un[1] === 'string') {
+    const m = un[1].match(/^\s*(\[[^\]]+\])/);
+    const prefix = m ? m[1].toUpperCase() : '';
+    if (prefix && PLAZA_PREFIX_TO_WAREHOUSE[prefix]) {
+      return { warehouseId: PLAZA_PREFIX_TO_WAREHOUSE[prefix], source: `x_analytic_un_id:${prefix}` };
+    }
+    return { warehouseId: null, source: 'unresolved', warning: `unidad de negocio sin mapeo de almacén: ${un[1]}` };
+  }
+  // 3. No resoluble.
+  return { warehouseId: null, source: 'unresolved', warning: 'partner sin x_warehouse_id ni x_analytic_un_id' };
 }
 
 export async function POST(request: Request) {
@@ -91,7 +131,7 @@ export async function POST(request: Request) {
 
     // ── 1. Datos frescos del partner ───────────────────────────────────────
     const partnerData = await callKw('res.partner', 'search_read', [[['id', '=', partnerId]]], {
-      fields: ['name', 'credit_limit', 'credit', 'property_payment_term_id', 'user_id', 'company_id', 'property_product_pricelist', 'x_warehouse_id'],
+      fields: ['name', 'credit_limit', 'credit', 'property_payment_term_id', 'user_id', 'company_id', 'property_product_pricelist', 'x_warehouse_id', 'x_analytic_un_id'],
       limit: 1,
     });
     if (!partnerData.length) return NextResponse.json({ error: 'Cuenta no encontrada' }, { status: 404 });
@@ -306,7 +346,7 @@ export async function POST(request: Request) {
     // Sin esto, Odoo asigna el almacén default de la compañía (CEDIS Iguala) a TODOS
     // los pedidos PWA, aunque el cliente sea de otra plaza. Esto NO confirma el pedido
     // ni crea picking: solo deja el pedido (draft) en el almacén correcto.
-    const { warehouseId, source: warehouseSource } = resolveWarehouseForPartner(partner);
+    const { warehouseId, source: warehouseSource, warning: warehouseWarning } = resolveWarehouseForPartner(partner);
     console.info('[B2B_WAREHOUSE]', {
       partner_id: partnerId,
       company_id: companyId,
@@ -314,7 +354,7 @@ export async function POST(request: Request) {
       source: warehouseSource,
     });
     if (!warehouseId) {
-      console.warn('[B2B_WAREHOUSE] partner sin x_warehouse_id → Odoo usará el almacén default de la compañía. Poblar dato maestro en Odoo.', { partner_id: partnerId });
+      console.warn('[B2B_WAREHOUSE] almacén NO resuelto → Odoo usará el default de la compañía (no se inventa). Poblar x_warehouse_id o x_analytic_un_id en Odoo.', { partner_id: partnerId, reason: warehouseWarning });
     }
 
     // ── 7. Crear sale.order ───────────────────────────────────────────────
