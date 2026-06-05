@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { callKw } from '@/lib/odoo';
 import { verifyToken } from '@/lib/auth';
 import { resolvePricesForPartner, getPartnerPricelistId } from '@/lib/pricelist';
+import { getOdooMany2OneId, isOdooIdempotencyError, resolveIdempotentOrderMatch } from '@/lib/b2bIdempotency';
 import { cookies } from 'next/headers';
 import { randomUUID, createHash } from 'crypto';
 
@@ -169,16 +170,50 @@ export async function POST(request: Request) {
     //     colisiones de keys enviadas por el cliente entre partners distintos.
     //   • Si existe y es del mismo partner → replay (200, idempotent_replay).
     //   • Si existe pero es de OTRO partner → conflicto controlado (409), sin crear.
-    const isIdempotencyError = (e: any) => /idempotenc|llave de idempotencia/i.test(e?.message || '');
-    const lookupIdempotent = async () => {
+    const idemCompanyId = partner.company_id ? partner.company_id[0] : parseInt(process.env.ODOO_COMPANY_ID || '34');
+    const idempotencyLookupKwargs = {
+      fields: ['id', 'name', 'state', 'amount_total', 'partner_id'],
+      limit: 1,
+      context: { allowed_company_ids: [idemCompanyId], active_test: false },
+    };
+    console.info('[B2B_IDEMPOTENCY] received', {
+      partner_id: partnerId,
+      idempotency_key: idempotencyKey,
+      lookup_company_id: idemCompanyId,
+    });
+    const lookupIdempotent = async (phase: string) => {
+      console.info('[B2B_IDEMPOTENCY] lookup start', {
+        phase,
+        partner_id: partnerId,
+        idempotency_key: idempotencyKey,
+        domain: [['x_kold_idempotency_key', '=', idempotencyKey]],
+        lookup_company_id: idemCompanyId,
+      });
       const rows = await callKw('sale.order', 'search_read',
         [[['x_kold_idempotency_key', '=', idempotencyKey]]],
-        { fields: ['id', 'name', 'state', 'amount_total', 'partner_id'], limit: 1 });
-      return rows && rows.length ? rows[0] : null;
+        idempotencyLookupKwargs);
+      const found = rows && rows.length ? rows[0] : null;
+      console.info('[B2B_IDEMPOTENCY] lookup result', {
+        phase,
+        partner_id: partnerId,
+        idempotency_key: idempotencyKey,
+        found: Boolean(found),
+        order_id: found?.id ?? null,
+        order_name: found?.name ?? null,
+        existing_partner_id: found ? getOdooMany2OneId(found.partner_id) : null,
+      });
+      return found;
     };
     const idempotentReplay = (ex: any, phase: string) => {
-      console.info(`[B2B_IDEMPOTENCY] ${phase}`, { partner_id: partnerId, order_id: ex.id, order_name: ex.name });
+      console.info('[B2B_IDEMPOTENCY] replay return', {
+        phase,
+        partner_id: partnerId,
+        idempotency_key: idempotencyKey,
+        order_id: ex.id,
+        order_name: ex.name,
+      });
       return NextResponse.json({
+        success: true,
         idempotent_replay: true,
         order_id: ex.id,
         order_name: ex.name,
@@ -192,19 +227,32 @@ export async function POST(request: Request) {
         ejecutivo_id: partner.user_id ? partner.user_id[0] : null,
       });
     };
-    const idempotentCollision = () => {
+    const idempotentCollision = (phase: string) => {
       // No exponer datos del otro pedido/partner.
-      console.warn('[B2B_IDEMPOTENCY] collision different partner', { partner_id: partnerId, key_prefix: idempotencyKey.substring(0, 12) });
+      console.warn('[B2B_IDEMPOTENCY] collision different partner', {
+        phase,
+        partner_id: partnerId,
+        idempotency_key: idempotencyKey,
+      });
+      return NextResponse.json({ error: 'No se pudo procesar el pedido por un conflicto de referencia. Vuelve a generar el carrito e intenta de nuevo.' }, { status: 409 });
+    };
+    const idempotentUnresolved = (phase: string, err: any) => {
+      console.error('[B2B_IDEMPOTENCY] unique constraint detected but lookup returned no order', {
+        phase,
+        partner_id: partnerId,
+        idempotency_key: idempotencyKey,
+        err: err?.message || String(err),
+      });
       return NextResponse.json({ error: 'No se pudo procesar el pedido por un conflicto de referencia. Vuelve a generar el carrito e intenta de nuevo.' }, { status: 409 });
     };
 
-    const preexisting = await lookupIdempotent();
+    const preexisting = await lookupIdempotent('precheck');
     if (preexisting) {
       console.info('[B2B_IDEMPOTENCY] precheck found existing order', { partner_id: partnerId, order_id: preexisting.id });
-      const exPartner = preexisting.partner_id ? preexisting.partner_id[0] : null;
-      if (exPartner && exPartner !== partnerId) return idempotentCollision();
+      if (resolveIdempotentOrderMatch(preexisting, partnerId) === 'collision') return idempotentCollision('precheck');
       return idempotentReplay(preexisting, 'replay returned');
     }
+    console.info('[B2B_IDEMPOTENCY] create enter', { partner_id: partnerId, idempotency_key: idempotencyKey });
 
     // ── 3. Pricing: resolver precios desde pricelist del partner ───────────
     const productIds = cart_lines.map((l: any) => l.product_id);
@@ -396,7 +444,14 @@ export async function POST(request: Request) {
           x_studio_horario_de_entrega_solicitado: delivery_schedule || '',
         }], companyContext);
       } catch (studioError: any) {
-        if (isIdempotencyError(studioError)) throw studioError;
+        if (isOdooIdempotencyError(studioError)) {
+          console.warn('[B2B_IDEMPOTENCY] create with x_studio detected idempotency error; skipping fallback create', {
+            partner_id: partnerId,
+            idempotency_key: idempotencyKey,
+            err: studioError?.message || String(studioError),
+          });
+          throw studioError;
+        }
         console.warn('[B2B_ORDER] sale.order create sin campos x_studio_*:', studioError?.message || studioError);
         return await callKw('sale.order', 'create', [order], companyContext);
       }
@@ -409,13 +464,20 @@ export async function POST(request: Request) {
       // Carrera: la key se insertó entre el pre-check y el create (o el pre-check no la
       // vio). Re-buscamos por la key; si ya existe la devolvemos como replay — no es un
       // error real. Solo si NO aparece reportamos error (controlado, nunca 500/502 mudo).
-      if (isIdempotencyError(createError)) {
-        const raced = await lookupIdempotent();
+      const isIdempotencyCreateError = isOdooIdempotencyError(createError);
+      console.warn('[B2B_IDEMPOTENCY] create catch', {
+        partner_id: partnerId,
+        idempotency_key: idempotencyKey,
+        detected_idempotency_error: isIdempotencyCreateError,
+        err: createError?.message || String(createError),
+      });
+      if (isIdempotencyCreateError) {
+        const raced = await lookupIdempotent('race-recovery');
         if (raced) {
-          const exPartner = raced.partner_id ? raced.partner_id[0] : null;
-          if (exPartner && exPartner !== partnerId) return idempotentCollision();
+          if (resolveIdempotentOrderMatch(raced, partnerId) === 'collision') return idempotentCollision('race-recovery');
           return idempotentReplay(raced, 'race recovered');
         }
+        return idempotentUnresolved('race-recovery', createError);
       }
       console.error('[B2B_ORDER] sale.order create FAILED', { partner_id: partnerId, err: createError?.message });
       return NextResponse.json({ error: 'No se pudo crear la orden en Odoo. Intenta nuevamente.' }, { status: 502 });
