@@ -61,63 +61,82 @@ export default function OrderHistory() {
 
   return (
     <div className="min-h-screen bg-background pb-32">
-        <div className="bg-white border-b border-border p-4 sticky top-0 z-20 shadow-sm flex items-center gap-3">
-            <button onClick={() => router.push('/account')} className="w-10 h-10 flex items-center justify-center bg-muted text-foreground rounded-full hover:bg-muted/80 transition-colors">
-                <ArrowLeft size={20} />
-            </button>
-            <h1 className="text-xl font-bold text-foreground font-display">Auditoría de Pedidos</h1>
+      {/* Header */}
+      <div className="bg-gradient-to-br from-[#1E3A8A] to-[#2563EB] pt-10 pb-4 px-4 shadow-lg">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => router.push('/account')}
+            className="w-9 h-9 flex items-center justify-center bg-white/15 text-white rounded-xl"
+          >
+            <ArrowLeft size={18} />
+          </button>
+          <h1 className="text-white text-lg font-black">Mis Pedidos</h1>
         </div>
+      </div>
 
-        <div className="p-4 space-y-4">
-           {loading ? (
-              <div className="flex justify-center p-10"><Loader2 className="animate-spin text-primary w-8 h-8" /></div>
-           ) : orders.length === 0 ? (
-              <div className="text-center p-10 text-muted-foreground text-sm font-medium">No se encontraron pedidos comerciales.</div>
-           ) : (
-             orders.map(order => (
-                <div key={order.id} className="bg-white border border-border rounded-xl shadow-sm overflow-hidden">
-                   <div className="p-4 border-b border-border bg-muted/5 flex justify-between items-start">
-                       <div>
-                           <div className="flex items-center gap-2 mb-1">
-                               <h3 className="font-extrabold text-foreground text-base tracking-tight">{order.name}</h3>
-                               {getStatusBadge(order.state)}
-                           </div>
-                           <p className="text-xs text-muted-foreground font-medium mb-1">{new Date(order.date_order).toLocaleDateString()} a las {new Date(order.date_order).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
-                           {getInvoiceBadge(order.invoice_status)}
-                       </div>
-                       <div className="text-right">
-                           <p className="font-extrabold text-lg text-foreground">${order.amount_total.toLocaleString('en-US', {minimumFractionDigits: 2})}</p>
-                       </div>
-                   </div>
-
-                   {/* Accordion / Detalles inline */}
-                   {expandedId === order.id && (
-                       <div className="px-4 py-3 bg-white">
-                          <p className="text-[10px] font-bold text-muted-foreground uppercase mb-2">Desglose de Líneas</p>
-                          <div className="space-y-2">
-                              {order.lines?.map((line: any, index: number) => (
-                                  <div key={index} className="flex justify-between items-center text-xs">
-                                     <span className="font-medium text-foreground max-w-[200px] truncate">{line.qty}x {line.name.split('\n')[0]}</span>
-                                     <span className="font-bold text-muted-foreground">${(line.qty * line.price).toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
-                                  </div>
-                              ))}
-                          </div>
-                       </div>
-                   )}
-
-                   <div className="p-3 bg-white flex gap-2">
-                       <button onClick={() => setExpandedId(expandedId === order.id ? null : order.id)} className="flex-1 bg-secondary text-foreground text-xs font-bold py-2.5 rounded-lg flex items-center justify-center gap-2 transition-colors hover:bg-secondary/80">
-                           {expandedId === order.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                           {expandedId === order.id ? 'Ocultar Detalle' : 'Ver Detalle'}
-                       </button>
-                       <button onClick={() => handleReorder(order)} className="flex-1 bg-primary/10 text-primary border border-primary/20 text-xs font-bold py-2.5 rounded-lg flex items-center justify-center gap-2 hover:bg-primary hover:text-white transition-all">
-                           <RefreshCw size={14} /> Reordenar
-                       </button>
-                   </div>
+      <div className="p-4 space-y-3">
+        {loading ? (
+          <div className="flex justify-center p-10">
+            <Loader2 className="animate-spin text-primary w-8 h-8" />
+          </div>
+        ) : orders.length === 0 ? (
+          <div className="text-center p-10 bg-card border border-border rounded-2xl">
+            <div className="text-4xl mb-3">🧊</div>
+            <p className="font-bold text-foreground mb-1">Sin pedidos aún</p>
+            <p className="text-muted-foreground text-sm">Tus órdenes aparecerán aquí.</p>
+          </div>
+        ) : (
+          orders.map(order => (
+            <div key={order.id} className="bg-card border border-border rounded-2xl shadow-sm overflow-hidden">
+              <div className="p-4 flex justify-between items-start">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <h3 className="font-black text-foreground text-base">{order.name}</h3>
+                    {getStatusBadge(order.state)}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground font-medium">
+                    {new Date(order.date_order).toLocaleDateString()} · {new Date(order.date_order).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                  <div className="mt-1">{getInvoiceBadge(order.invoice_status)}</div>
                 </div>
-             ))
-           )}
-        </div>
+                <p className="font-black text-lg text-primary ml-3 flex-shrink-0">
+                  ${order.amount_total.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                </p>
+              </div>
+
+              {expandedId === order.id && (
+                <div className="px-4 pb-3 border-t border-border bg-secondary/50">
+                  <p className="text-[9px] font-black text-muted-foreground uppercase tracking-wider pt-3 mb-2">Detalle del pedido</p>
+                  <div className="space-y-1.5">
+                    {order.lines?.map((line: any, index: number) => (
+                      <div key={index} className="flex justify-between items-center text-xs">
+                        <span className="font-medium text-foreground max-w-[200px] truncate">{line.qty}× {line.name.split('\n')[0]}</span>
+                        <span className="font-bold text-muted-foreground">${(line.qty * line.price).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="p-3 border-t border-border flex gap-2">
+                <button
+                  onClick={() => setExpandedId(expandedId === order.id ? null : order.id)}
+                  className="flex-1 bg-secondary border border-border text-foreground text-xs font-bold py-2.5 rounded-xl flex items-center justify-center gap-1.5"
+                >
+                  {expandedId === order.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  {expandedId === order.id ? 'Ocultar' : 'Ver detalle'}
+                </button>
+                <button
+                  onClick={() => handleReorder(order)}
+                  className="flex-1 bg-primary/10 text-primary border border-primary/20 text-xs font-bold py-2.5 rounded-xl flex items-center justify-center gap-1.5 hover:bg-primary hover:text-white transition-all"
+                >
+                  <RefreshCw size={13} /> Reordenar
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
     </div>
   );
 }
