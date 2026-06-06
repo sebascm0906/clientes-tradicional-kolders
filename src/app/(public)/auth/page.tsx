@@ -112,7 +112,7 @@ function AuthContent() {
   const [currentUrl, setCurrentUrl] = useState("");
 
   useEffect(() => {
-    if (isWhatsAppWebView()) {
+    if (isInAppBrowser()) {
       setInWhatsApp(true);
       setCurrentUrl(window.location.href);
       return;
