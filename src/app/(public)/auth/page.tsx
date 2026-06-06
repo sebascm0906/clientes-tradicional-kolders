@@ -4,12 +4,32 @@ import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
-function isWhatsAppWebView(): boolean {
-  return typeof navigator !== "undefined" && /WhatsApp/.test(navigator.userAgent);
+function isInAppBrowser(): boolean {
+  if (typeof navigator === "undefined" || typeof window === "undefined") return false;
+  const ua = navigator.userAgent;
+
+  // Android WhatsApp explicitly includes "WhatsApp" in the UA
+  if (/WhatsApp/.test(ua)) return true;
+
+  // iOS WhatsApp uses WKWebView: has iPhone/iPad but NO "Safari/" token and
+  // is NOT a known iOS browser (Chrome, Firefox, Edge, Opera) and NOT the installed PWA
+  const isIOS = /iPhone|iPad|iPod/.test(ua);
+  const isStandalone = (window.navigator as { standalone?: boolean }).standalone === true;
+  const hasSafariToken = /Safari\//.test(ua);
+  const isKnownIOSBrowser = /CriOS|FxiOS|EdgiOS|OPiOS/.test(ua);
+
+  if (isIOS && !isStandalone && !hasSafariToken && !isKnownIOSBrowser) return true;
+
+  return false;
+}
+
+function isIOS(): boolean {
+  return typeof navigator !== "undefined" && /iPhone|iPad|iPod/.test(navigator.userAgent);
 }
 
 function WhatsAppOverlay({ currentUrl }: { currentUrl: string }) {
   const [copied, setCopied] = useState(false);
+  const onIOS = isIOS();
 
   const handleOpenSafari = () => {
     window.open(currentUrl, "_blank");
@@ -21,7 +41,7 @@ function WhatsAppOverlay({ currentUrl }: { currentUrl: string }) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // fallback: select the text input
+      // clipboard API not available
     }
   };
 
@@ -39,20 +59,30 @@ function WhatsAppOverlay({ currentUrl }: { currentUrl: string }) {
         <div>
           <h2 className="text-xl font-bold text-foreground mb-2">Abre en Safari</h2>
           <p className="text-sm text-muted-foreground">
-            Para acceder al portal, este enlace debe abrirse en Safari (no dentro de WhatsApp).
+            Para ingresar al portal debes abrir este enlace en Safari, no dentro de WhatsApp.
           </p>
         </div>
 
-        <button
-          onClick={handleOpenSafari}
-          className="w-full h-12 rounded-xl bg-primary text-white font-bold tracking-wide transition-all hover:bg-primary/90 shadow-lg shadow-primary/20"
-        >
-          Abrir en Safari
-        </button>
+        {onIOS ? (
+          <div className="bg-muted rounded-2xl p-4 text-left space-y-3">
+            <p className="text-sm font-bold text-foreground">Pasos:</p>
+            <ol className="text-sm text-muted-foreground space-y-2 list-decimal list-inside">
+              <li>Toca los <strong>···</strong> (puntos) en la esquina superior derecha</li>
+              <li>Selecciona <strong>"Abrir en Safari"</strong></li>
+            </ol>
+          </div>
+        ) : (
+          <button
+            onClick={handleOpenSafari}
+            className="w-full h-12 rounded-xl bg-primary text-white font-bold tracking-wide transition-all hover:bg-primary/90 shadow-lg shadow-primary/20"
+          >
+            Abrir en navegador
+          </button>
+        )}
 
         <div className="space-y-2">
           <p className="text-xs text-muted-foreground">
-            Si el botón no funciona, copia el enlace y ábrelo en Safari manualmente:
+            O copia el enlace y ábrelo manualmente en Safari:
           </p>
           <div className="flex items-center gap-2 bg-muted rounded-xl p-3">
             <span className="text-xs text-foreground truncate flex-1 text-left font-mono">
