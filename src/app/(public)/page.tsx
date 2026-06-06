@@ -1,6 +1,6 @@
 "use client";
 
-const WA_LINK = "https://wa.me/521554000990?text=Dame%20mi%20acceso";
+const WA_LINK = "https://wa.me/525540000990?text=Dame%20mi%20acceso";
 
 export default function Home() {
   return (
